@@ -1,4 +1,3 @@
-// /client/pages/chat.js
 import { useEffect, useState, useRef } from "react";
 import io from "socket.io-client";
 import axios from "axios";
@@ -13,6 +12,7 @@ export default function Chat() {
   const [usuarios, setUsuarios] = useState([]);
   const [mensajes, setMensajes] = useState([]);
   const [nuevoMensaje, setNuevoMensaje] = useState("");
+  const [mensajesNoLeidos, setMensajesNoLeidos] = useState({});
   const chatRef = useRef(null);
 
   // Obtener usuario actual y lista de contactos
@@ -39,25 +39,45 @@ export default function Chat() {
   // Manejar mensajes recibidos en tiempo real
   useEffect(() => {
     const handleMensaje = (msg) => {
-      setMensajes(prev => {
-        // Filtrar mensaje temporal si existe
-        const mensajesFiltrados = prev.filter(m => m._id !== msg._idTemp);
-        // Evitar duplicados del servidor
-        if (!mensajesFiltrados.some(m => m._id === msg._id)) {
-          return [...mensajesFiltrados, msg];
-        }
-        return mensajesFiltrados;
-      });
-      scrollToBottom();
+      // Verificar si el mensaje es parte de la conversación actual
+      if ((msg.emisor === destinatario && msg.receptor === usuario) || 
+          (msg.emisor === usuario && msg.receptor === destinatario)) {
+        setMensajes(prev => {
+          // Filtrar mensaje temporal si existe
+          const mensajesFiltrados = prev.filter(m => m._id !== msg._idTemp);
+          // Evitar duplicados del servidor
+          if (!mensajesFiltrados.some(m => m._id === msg._id)) {
+            return [...mensajesFiltrados, msg];
+          }
+          return mensajesFiltrados;
+        });
+        scrollToBottom();
+      } else if (msg.emisor !== usuario) {
+        // Si el mensaje no es para la conversación actual y no es de nuestra autoría
+        // Incrementamos el contador de mensajes no leídos para ese usuario
+        setMensajesNoLeidos(prev => ({
+          ...prev,
+          [msg.emisor]: (prev[msg.emisor] || 0) + 1
+        }));
+      }
     };
 
     socket.on("mensaje", handleMensaje);
     return () => socket.off("mensaje", handleMensaje);
-  }, []);
+  }, [usuario, destinatario]);
 
   // Cargar historial de mensajes al seleccionar un usuario
   const seleccionarUsuario = async (dest) => {
     setDestinatario(dest);
+    
+    // Resetear contador de mensajes no leídos para este usuario
+    if (dest) {
+      setMensajesNoLeidos(prev => ({
+        ...prev,
+        [dest]: 0
+      }));
+    }
+    
     try {
       const res = await axios.get("http://localhost:4000/mensajes", {
         params: { usuario1: usuario, usuario2: dest }
@@ -123,7 +143,7 @@ export default function Chat() {
           <option value="">-- Selecciona --</option>
           {usuarios.map((u) => (
             <option key={u} value={u}>
-              {u}
+              {u} {mensajesNoLeidos[u] ? `(${mensajesNoLeidos[u]} nuevos)` : ''}
             </option>
           ))}
         </select>
